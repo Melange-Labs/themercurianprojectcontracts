@@ -52,8 +52,13 @@
                     @@(((@@/////,,.//@@@////@                                   
                       @@(((//////////@@@@@//@                                   
                            @@where@                                             
-                             @%%%%@                                             
-                                                                                
+                             @%%%%@  
+
+  A Melange Labs Project
+  Founder:          @atreidesETH
+  Contract Author:  @BlockDaddyy
+  Auditor:          @ItsCuzzo      
+
 */                                                                           
 
 pragma solidity ^0.8.0;
@@ -63,8 +68,9 @@ import "./Pausable.sol";
 import "./Strings.sol";
 import "./MAGNESIUM.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
-contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
+contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable, ReentrancyGuard {
   
   using Strings for uint256;
 
@@ -73,7 +79,7 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
 
   uint256 constant MAX_DEVICES_SUPPLY = 1390;
   uint256 constant SECONDS_PER_DAY    = 1 days;
-  uint256 public   yieldEndTime     = 1742839200; // March 24, 2025, 19:00 UTC: Mercury's first Inferior Conjunction of 2025
+  uint256 public   yieldEndTime       = 1742839200; // March 24, 2025, 19:00 UTC: Mercury's first Inferior Conjunction of 2025
 
   string public baseURI;
   string public baseExtension;
@@ -96,7 +102,6 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
   constructor(address _magnesium) ERC721("Ancient Devices", "ANCIENT DEVICES") {
       magnesium = MAGNESIUM(_magnesium);
       _pause();
-      _disableSecretUnlock();
   }
 
   /**
@@ -119,6 +124,9 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
   }
 
   function setYieldEndTime(uint256 _newTime) external onlyOwnerOrAdmin {
+      uint256 currentTime = block.timestamp;
+      require(currentTime < yieldEndTime, "yieldEndTime can't be changed once the end time has past");
+      require(currentTime < _newTime, "yieldEndTime can only be changed to a time in the future");
       yieldEndTime = _newTime;
   }
 
@@ -144,7 +152,7 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
 
   // CLAIMING DEVICES
 
-  function claimDevices(uint256 _amount, bytes32[] calldata _merkleProof, uint256 _allowance) external whenNotPaused {
+  function claimDevices(uint256 _amount, bytes32[] calldata _merkleProof, uint256 _allowance) external whenNotPaused nonReentrant {
     uint256 totalSupply = _owners.length;
     require(totalSupply + _amount <= MAX_DEVICES_SUPPLY, "Exceeds max supply");
     require(_amount > 0, "You must claim an amount greater than 0");
@@ -211,7 +219,7 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
     return totalAvailable;
   }
 
-  function claimMagFromMany(uint256[] calldata _tokenIds) external whenNotPaused {
+  function claimMagFromMany(uint256[] calldata _tokenIds) external whenNotPaused nonReentrant {
     uint256 available;
     uint256 totalAvailable;
     require(_tokenIds.length > 0, "You cannot pass an empty array");
@@ -232,8 +240,7 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
   /** 
    * Upgrade a device (One device at a time. You can upgrade multiple levels at once)
    */
-  function upgradeDeviceAndClaim(uint256 _tokenId, uint256 _targetLevel) external whenNotPaused {
-    require(tx.origin == _msgSender(), "Only EOA");
+  function upgradeDeviceAndClaim(uint256 _tokenId, uint256 _targetLevel) external whenNotPaused nonReentrant {
     require(_msgSender() == ownerOf(_tokenId), "NOT YOUR DEVICE");
     Device storage device = devices[_tokenId];
     require(device.level < _targetLevel, "Must be an upgrade");
@@ -266,7 +273,7 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
    */
   function upgradeCost(uint _level, uint _targetLevel) internal pure returns (uint256) {
     uint256 totalCost;
-    while(_level < _targetLevel){
+    while(_level < _targetLevel){ // 377981
       if (_level == 1)      totalCost += 7 ether;
       else if (_level == 2) totalCost += 35 ether;
       else if (_level == 3) totalCost += 350 ether;
@@ -279,7 +286,7 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
   function getUpgradeCost(uint256 _tokenId, uint _targetLevel) external view returns (uint256) {
     uint256 totalCost;
     uint16 level = devices[_tokenId].level;
-    while(level < _targetLevel){ // 377981
+    while(level < _targetLevel){
       if (level == 1)      totalCost += 7 ether;
       else if (level == 2) totalCost += 35 ether;
       else if (level == 3) totalCost += 350 ether;
@@ -294,14 +301,14 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
     return devices[_tokenId].level;
   }
 
-  function secretUnlockWithClaimIfNeeded(uint256 _tokenId) external whenNotPaused whenSecretUnlockEnabled {
+  function secretUnlockWithClaimIfNeeded(uint256 _tokenId) external whenNotPaused whenSecretUnlockEnabled nonReentrant {
     require(_msgSender() == ownerOf(_tokenId), "Not your device");
     require(block.timestamp > yieldEndTime, "Device not ready");
     Device storage device = devices[_tokenId];
     require(device.level == 5, "Must be level 5 to unlock a device");
     uint256 available = magnesiumAvailable(_tokenId); // placed here intentionally
     device.level = uint16(6);
-    if (available > 0){ //if there is mag in the device, claim it
+    if (available > 0) { //if there is mag in the device, claim it
       device.lastClaimTimestamp = uint240(block.timestamp);
       magnesium.mint(_msgSender(), available); // trusted
     }
@@ -315,16 +322,16 @@ contract AncientDevice is ERC721Enumerable, OwnableWithAdmin, Pausable {
 
   /** 
    Override to make sure that transfers can't be frontrun
-   */
-  function transferFrom(address from, address to, uint256 tokenId) public override {
+  */
+  function transferFrom(address from, address to, uint256 tokenId) public override nonReentrant {
     require(devices[tokenId].lastClaimTimestamp < block.timestamp, "Cannot claim immediately before a transfer");
     super.transferFrom(from, to, tokenId);
   }
 
   /** 
    Override to make sure that transfers can't be frontrun
-   */
-  function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory _data) public override {
+  */
+  function safeTransferFrom(address from, address to, uint256 tokenId, bytes memory _data) public override nonReentrant {
     require(devices[tokenId].lastClaimTimestamp < block.timestamp, "Cannot claim immediately before a transfer");
     super.safeTransferFrom(from, to, tokenId, _data);
   }

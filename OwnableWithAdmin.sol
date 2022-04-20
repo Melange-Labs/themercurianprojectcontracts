@@ -21,7 +21,7 @@ abstract contract OwnableWithAdmin is Context {
     address private _admin;
 
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event NewAdmin(address indexed newAdmin);
+    event NewAdmin(address indexed previousAdmin, address indexed newAdmin);
 
     /**
      * @dev Initializes the contract setting the deployer as the initial owner.
@@ -107,7 +107,8 @@ abstract contract OwnableWithAdmin is Context {
         _setAdmin(newAdmin);
     }
     function _setAdmin(address newAdmin) private {
+        address oldAdmin = _admin;
         _admin = newAdmin;
-        emit NewAdmin(newAdmin);
+        emit NewAdmin(oldAdmin, newAdmin);
     }
 }

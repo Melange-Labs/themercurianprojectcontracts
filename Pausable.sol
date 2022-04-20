@@ -71,6 +71,11 @@ abstract contract Pausable is Context {
         _;
     }
 
+    modifier whenSecretUnlockDisabled() {
+        require(!_secretUnlockEnabled, "Secret Unlock Enabled");
+        _;
+    }
+
     /**
      * @dev Triggers stopped state.
      *
@@ -95,7 +100,7 @@ abstract contract Pausable is Context {
         emit Unpaused(_msgSender());
     }
 
-    function _enableSecretUnlock() internal virtual {
+    function _enableSecretUnlock() internal virtual whenSecretUnlockDisabled {
         _secretUnlockEnabled = true;
     }
 
